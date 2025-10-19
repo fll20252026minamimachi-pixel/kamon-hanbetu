@@ -36,7 +36,11 @@
   </div>
 
   <!-- OpenCV.js (WASM) from official CDN -->
-  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onCvReady()" onerror="alert('OpenCV.js の読み込みに失敗しました');"></script>
+  <script async src="https://docs.opencv.org/4.9.0/opencv.js"
+        onload="onCvReady()" 
+        onerror="alert('OpenCV.js の読み込みに失敗しました。再読み込みしてみてください。');">
+</script>
+
   <script>
   // OpenCV.js の初期化が完了したら cvReady=true にする
   let cvReady = false;
