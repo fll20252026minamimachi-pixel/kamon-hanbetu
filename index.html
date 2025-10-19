@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>図形検出サイト (GitHub Pages版)</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; margin: 24px; }
+    h1 { font-size: 1.8rem; margin-bottom: 0.2rem; }
+    .card { max-width: 960px; border: 1px solid #ccc; border-radius: 16px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+    #preview { max-width: 100%; height: auto; display: block; }
+    canvas { max-width: 100%; height: auto; border-radius: 8px; }
+    label.button {
+      display:inline-flex; align-items:center; gap:.5rem;
+      background:#222; color:#fff; padding:.6rem 1rem; border-radius:999px; cursor:pointer;
+    }
+    input[type=file]{ display:none; }
+    .counts { font-weight: 600; margin-top: 8px; }
+    .small { opacity: .75; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔵 図形検出サイト（GitHub Pages 版 / OpenCV.js）</h1>
+    <p class="small">画像をアップロードすると、<b>丸・三角・四角</b> をブラウザ内だけで検出して枠とラベルを描画します（正方形/長方形の区別なし）。</p>
+    <div class="row">
+      <label class="button">📤 画像を選ぶ <input id="file" type="file" accept="image/*" /></label>
+      <span class="small">※ 処理は端末内で完結（サーバーには送信しません）</span>
+    </div>
+    <div style="margin-top:12px;">
+      <canvas id="canvas"></canvas>
+      <div id="counts" class="counts">未処理</div>
+    </div>
+  </div>
+
+  <!-- OpenCV.js (WASM) from official CDN -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onCvReady()" onerror="alert('OpenCV.js の読み込みに失敗しました');"></script>
+  <script>
+    const MIN_AREA = 500;
+    const APPROX_COEF = 0.02;
+    const CIRCLE_THRESH = 0.80;
+    const fileInput = document.getElementById('file');
+    const canvas = document.getElementById('canvas');
+    const countsEl = document.getElementById('counts');
+
+    let cvReady = false;
+    function onCvReady() {
+      if (cv && cv.getBuildInformation) {
+        cvReady = true;
+        console.log('OpenCV.js ready');
+      }
+    }
+
+    function loadImage(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    function classifyShape(cnt) {
+      const area = cv.contourArea(cnt);
+      if (area < MIN_AREA) return null;
+      const peri = cv.arcLength(cnt, true);
+      const approx = new cv.Mat();
+      cv.approxPolyDP(cnt, approx, APPROX_COEF * peri, true);
+      const v = approx.rows;
+      approx.delete();
+      if (v === 3) return 'triangle';
+      if (v === 4) return 'square';
+      const circularity = 4 * Math.PI * area / (peri * peri + 1e-6);
+      if (circularity >= CIRCLE_THRESH) return 'circle';
+      return null;
+    }
+
+    async function handleFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!cvReady) { alert('OpenCV.js の準備中です。数秒後に再試行してください。'); return; }
+
+      const imgEl = await loadImage(file);
+      const w = imgEl.naturalWidth, h = imgEl.naturalHeight;
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgEl, 0, 0, w, h);
+
+      let src = cv.imread(canvas);
+      let gray = new cv.Mat(), blur = new cv.Mat(), bw = new cv.Mat();
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+      cv.GaussianBlur(gray, blur, new cv.Size(5,5), 0, 0, cv.BORDER_DEFAULT);
+      cv.threshold(blur, bw, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+
+      let contours = new cv.MatVector(), hierarchy = new cv.Mat();
+      cv.findContours(bw, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      let vis = src.clone();
+      const green = new cv.Scalar(0,200,0,255);
+      const count = {circle:0, triangle:0, square:0};
+
+      for (let i=0; i<contours.size(); i++) {
+        const cnt = contours.get(i);
+        const label = classifyShape(cnt);
+        if (!label) { cnt.delete(); continue; }
+        count[label]++;
+        const rect = cv.boundingRect(cnt);
+        cv.rectangle(vis, new cv.Point(rect.x, rect.y), new cv.Point(rect.x+rect.width, rect.y+rect.height), green, 2);
+        cv.putText(vis, label, new cv.Point(rect.x, Math.max(0, rect.y-6)), cv.FONT_HERSHEY_SIMPLEX, 0.7, green, 2);
+        cnt.delete();
+      }
+
+      cv.imshow(canvas, vis);
+      countsEl.textContent = `🔵 丸: ${count.circle}　🟩 四角: ${count.square}　🔺 三角: ${count.triangle}`;
+
+      src.delete(); gray.delete(); blur.delete(); bw.delete(); contours.delete(); hierarchy.delete(); vis.delete();
+    }
+
+    fileInput.addEventListener('change', handleFile);
+  </script>
+</body>
+</html>
